@@ -69,4 +69,4 @@ There are three possibilities on why you may get an error:
 - [x] Create Account screen
 - [x] Login screen
 - [x] Room selection screen
-- [ ] Chat screen
+- [x] Chat screen
