@@ -10,6 +10,8 @@
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <png.h>
+#include <setjmp.h>
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
@@ -76,6 +78,74 @@ void drawGlyph(int x, int y, FT_Bitmap* bmp, u32 color) {
             framebuf[py * framebuf_width + px] = RGBA(r, g, b, 0xFF);
         }
     }
+}
+
+void drawImage(const char* path, int x, int y) {
+    FILE* fp = fopen(path, "rb");
+    if (!fp) return;
+
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) {
+        fclose(fp);
+        return;
+    }
+    png_infop info = png_create_info_struct(png);
+    if (!info) {
+        png_destroy_read_struct(&png, NULL, NULL);
+        fclose(fp);
+        return;
+    }
+    if (setjmp(png_jmpbuf(png))) {
+        png_destroy_read_struct(&png, &info, NULL);
+        fclose(fp);
+        return;
+    }
+    png_init_io(png, fp);
+    png_read_info(png, info);
+
+    int width = png_get_image_width(png, info);
+    int height = png_get_image_height(png, info);
+    png_byte color_type = png_get_color_type(png, info);
+    png_byte bit_depth = png_get_bit_depth(png, info);
+
+    if (bit_depth == 16) png_set_strip_16(png);
+    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
+    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
+    if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_PALETTE) png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
+
+    png_read_update_info(png, info);
+    png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+    for(int i = 0; i < height; i++) row_pointers[i] = (png_byte*)malloc(png_get_rowbytes(png,info));
+    png_read_image(png, row_pointers);
+
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            int px = x + col;
+            int py = y + row;
+            if (px < 0 || px >= 1280 || py < 0 || py >= 720) continue;
+            png_byte* pixel = &(row_pointers[row][col * 4]);
+            u8 r = pixel[0];
+            u8 g = pixel[1];
+            u8 b = pixel[2];
+            u8 a = pixel[3];
+            if (a == 0) continue;
+            u32 existing = framebuf[py * framebuf_width + px];
+            u8 er = (existing >>  0) & 0xFF;
+            u8 eg = (existing >>  8) & 0xFF;
+            u8 eb = (existing >> 16) & 0xFF;
+            u8 dr = (r * a + er * (255 - a)) / 255;
+            u8 dg = (g * a + eg * (255 - a)) / 255;
+            u8 db = (b * a + eb * (255 - a)) / 255;
+            framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
+        }
+    }
+
+    for (int i = 0; i < height; i++) free(row_pointers[i]);
+    free(row_pointers);
+    png_destroy_read_struct(&png, &info, NULL);
+    fclose(fp);
 }
 
 void drawText(int x, int y, const char* text, u32 color, int size) {
@@ -279,7 +349,7 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = create account, 2 = log in, 3 = error screen, 4 = room selection, 5 = chat screen
+int screen = 0; // 0 = main menu, 1 = error screen
 const char* username = "";
 const char* password = "";
 char token[512];
@@ -303,14 +373,10 @@ void drawMainMenu(u64 kDown) {
         mainmenuselection = 2;
     }
 
-    drawRect(0, 0, 1280, 40, COL_HEADER);
-    drawText(10, 28, "AuroraChat Switch", COL_WHITE, 22);
-
-    drawRect(0, 40, 1280, 40, mainmenuselection == 1 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+40, "Create Account", COL_WHITE, 22);
-
-    drawRect(0, 82, 1280, 40, mainmenuselection == 2 ? COL_HOVER : COL_PANEL);
-    drawText(10, 28+82, "Log In", COL_WHITE, 22);
+    drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24); // TODO: make this only appear if docked
+    drawText(1200, 715, "v26.6.3", COL_WHITE, 24);
+    drawImage("romfs:/images/aurorachat.png", 383, 190);
+    drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
 
 int loginselection = 1;
@@ -698,15 +764,7 @@ int main(int argc, char* argv[]) {
         if (screen == 0) {
             drawMainMenu(kDown);
         } else if (screen == 1) {
-            drawCreateAccount(kDown);
-        } else if (screen == 2) {
-            drawLogIn(kDown);
-        } else if (screen == 3) {
             drawError(errmsg, errcode);
-        } else if (screen == 4) {
-            drawRoomSelection(kDown);
-        } else if (screen == 5) {
-            drawChatScreen(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }
