@@ -394,7 +394,7 @@ void loadRules() {
 
 void drawRules(u64 kDown) {
     if ((kDown & HidNpadButton_Up) && ruleslinescroll != 0) ruleslinescroll--;
-    else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 21) ruleslinescroll++;
+    else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 30) ruleslinescroll++;
     drawText(0, 24, "(use the D-Pad to scroll)", COL_WHITE, 24);
     drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
     drawImage("romfs:/images/boxes/rules.png", 439, 203);
