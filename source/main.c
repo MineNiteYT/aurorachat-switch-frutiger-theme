@@ -352,7 +352,7 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
     }
 }
 
-int screen = 0; // 0 = main menu, 1 = error screen
+int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen
 const char* username = "";
 const char* password = "";
 char token[512];
@@ -366,16 +366,12 @@ void drawMainMenu(u64 kDown) {
         u32 tx = touchState.touches[0].x;
         u32 ty = touchState.touches[0].y;
         if (isPointInRect(tx, ty, 470, 447, 341, 83)) {
-            errmsg = "Screen Work In Progress";
-            errcode = "SCR_WIP";
-            screen = 1;
+            screen = 2;
             return;
         }
     }
     if (kDown & HidNpadButton_A) {
-        errmsg = "Screen Work In Progress";
-        errcode = "SCR_WIP";
-        screen = 1;
+        screen = 2;
         return;
     }
 
@@ -383,6 +379,15 @@ void drawMainMenu(u64 kDown) {
     drawText(1200, 715, "v26.6.5", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
+}
+
+void drawRules(u64 kDown) {
+    char* loremipsum = "Lorem ipsum dolor sit amet,\nconsectetur adipiscing elit,\nsed do eiusmod tempor\nincididunt ut labore et dolore\nmagna aliqua. Ut enim ad\nminim veniam, quis nostrud\nexercitation ullamco laboris\nnisi ut aliquip ex ea commodo\nconsequat. Duis aute irure\nballs balls balls balls balls\nballs balls balls balls balls\n";
+    drawText(0, 24, "(use the D-Pad to scroll)", COL_WHITE, 24);
+    drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
+    drawImage("romfs:/images/boxes/rules.png", 439, 203);
+    drawText(447, 235, loremipsum, COL_BLACK, 27);
+    drawImage("romfs:/images/buttons/done.png", 524, 598);
 }
 
 int loginselection = 1;
@@ -771,6 +776,8 @@ int main(int argc, char* argv[]) {
             drawMainMenu(kDown);
         } else if (screen == 1) {
             drawError(errmsg, errcode);
+        } else if (screen == 2) {
+            drawRules(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }
