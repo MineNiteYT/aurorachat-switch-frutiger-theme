@@ -386,9 +386,9 @@ char *rules = NULL;
 
 void loadRules() {
     FILE *file = fopen("romfs:/rules.txt", "r");
-    rules = malloc(1168);
-    fread(rules, 1, 1167, file);
-    rules[1167] = '\0';
+    rules = malloc(1186);
+    fread(rules, 1, 1185, file);
+    rules[1185] = '\0';
     fclose(file);
 }
 
