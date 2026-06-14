@@ -366,17 +366,6 @@ void drawMainMenu(u64 kDown) {
         u32 tx = touchState.touches[0].x;
         u32 ty = touchState.touches[0].y;
         if (isPointInRect(tx, ty, 470, 447, 341, 83)) {
-            Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
-            if (!audio) {
-                errmsg = Mix_GetError();
-                errcode = "MIX_LOAD_FAIL";
-                screen = 1;
-            } else if (Mix_PlayMusic(audio, -1) < 0) {
-                errmsg = Mix_GetError();
-                errcode = "MIX_PLAY_FAIL";
-                screen = 1;
-            }
-            Mix_PlayMusic(audio, -1);
             screen = 2;
             return;
         }
