@@ -376,7 +376,7 @@ void drawMainMenu(u64 kDown) {
     }
 
     if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
-    drawText(1200, 715, "v26.6.14", COL_WHITE, 24);
+    drawText(1180, 715, "v26.6.14", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
@@ -451,9 +451,14 @@ void drawRules(u64 kDown) {
 }
 
 void drawLogin(u64 kDown) {
-    drawText(0, 0, "Y to show password", COL_WHITE, 24);
+    AppletOperationMode mode = appletGetOperationMode();
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show password", COL_WHITE, 24);
     drawImage("romfs:/images/boxes/username.png", 240, 162);
-    // TODO: place all images
+    drawText(514, 211, "thisuserisverycool0", COL_WHITE, 48);
+    drawImage("romfs:/images/boxes/password.png", 240, 266);
+    drawText(514, 315, "****************", COL_WHITE, 48);
+    drawImage("romfs:/images/buttons/login.png", 524, 420);
+    drawImage("romfs:/images/buttons/createacc.png", 506, 516);
 }
 
 int loginselection = 1;
@@ -845,6 +850,8 @@ int main(int argc, char* argv[]) {
             drawError(errmsg, errcode);
         } else if (screen == 2) {
             drawRules(kDown);
+        } else if (screen == 3) {
+            drawLogin(kDown);
         } else {
             drawError("Invalid screen value", "SCR_VAL_INV");
         }
