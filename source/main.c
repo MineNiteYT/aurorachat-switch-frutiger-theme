@@ -376,7 +376,7 @@ void drawMainMenu(u64 kDown) {
     }
 
     if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
-    drawText(1200, 715, "v26.6.5", COL_WHITE, 24);
+    drawText(1200, 715, "v26.6.14", COL_WHITE, 24);
     drawImage("romfs:/images/aurorachat.png", 383, 190);
     drawImage("romfs:/images/buttons/enter.png", 470, 447);
 }
