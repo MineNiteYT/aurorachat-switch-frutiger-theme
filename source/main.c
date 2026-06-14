@@ -382,17 +382,6 @@ void drawMainMenu(u64 kDown) {
         }
     }
     if (kDown & HidNpadButton_A) {
-        Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
-        if (!audio) {
-            errmsg = Mix_GetError();
-            errcode = "MIX_LOAD_FAIL";
-            screen = 1;
-        } else if (Mix_PlayMusic(audio, -1) < 0) {
-            errmsg = Mix_GetError();
-            errcode = "MIX_PLAY_FAIL";
-            screen = 1;
-        }
-        Mix_PlayMusic(audio, -1);
         screen = 2;
         return;
     }
@@ -415,8 +404,43 @@ void loadRules() {
 }
 
 void drawRules(u64 kDown) {
+    HidTouchScreenState touchState;
     if ((kDown & HidNpadButton_Up) && ruleslinescroll != 0) ruleslinescroll--;
     else if ((kDown & HidNpadButton_Down) && ruleslinescroll != 30) ruleslinescroll++;
+    else if (kDown & HidNpadButton_A) {
+        Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+        if (!audio) {
+            errmsg = Mix_GetError();
+            errcode = "MIX_LOAD_FAIL";
+            screen = 1;
+        } else if (Mix_PlayMusic(audio, -1) < 0) {
+            errmsg = Mix_GetError();
+            errcode = "MIX_PLAY_FAIL";
+            screen = 1;
+        }
+        Mix_PlayMusic(audio, -1);
+        screen = 3; // TODO: make the actual screen twin
+        return;
+    }
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 524, 598, 232, 73)) {
+            Mix_Music *audio = Mix_LoadMUS("romfs:/music/bgm.mp3");
+            if (!audio) {
+                errmsg = Mix_GetError();
+                errcode = "MIX_LOAD_FAIL";
+                screen = 1;
+            } else if (Mix_PlayMusic(audio, -1) < 0) {
+                errmsg = Mix_GetError();
+                errcode = "MIX_PLAY_FAIL";
+                screen = 1;
+            }
+            Mix_PlayMusic(audio, -1);
+            screen = 3;
+            return;
+        }
+    }
     drawText(0, 24, "(use the D-Pad to scroll)", COL_WHITE, 24);
     drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
     drawImage("romfs:/images/boxes/rules.png", 439, 203);
