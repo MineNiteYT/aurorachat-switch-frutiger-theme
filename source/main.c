@@ -430,7 +430,7 @@ void drawRules(u64 kDown) {
             return;
         }
     }
-    drawText(0, 24, "(use the D-Pad to scroll)", COL_WHITE, 24);
+    drawText(0, 24, "Use the D-Pad to scroll\nA to agree with the Code of Conduct", COL_WHITE, 24);
     drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
     drawImage("romfs:/images/boxes/rules.png", 439, 203);
 
