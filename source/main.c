@@ -450,13 +450,29 @@ void drawRules(u64 kDown) {
     drawImage("romfs:/images/buttons/done.png", 524, 598);
 }
 
+bool showpass = false;
 void drawLogin(u64 kDown) {
+    HidTouchScreenState touchState;
     AppletOperationMode mode = appletGetOperationMode();
     if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show password", COL_WHITE, 24);
+    if (kDown & HidNpadButton_Y) {
+        showpass = !showpass;
+    }
+    static bool showTouchWasDown = false;
+    bool showTouchDown = false;
+    if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
+        u32 tx = touchState.touches[0].x;
+        u32 ty = touchState.touches[0].y;
+        if (isPointInRect(tx, ty, 956, 266, 84, 73)) {
+            showTouchDown = true;
+        }
+    }
+    if (showTouchDown && !showTouchWasDown) showpass = !showpass;
+    showTouchWasDown = showTouchDown;
     drawImage("romfs:/images/boxes/username.png", 240, 162);
     drawText(514, 211, "thisuserisverycool0", COL_WHITE, 48);
-    drawImage("romfs:/images/boxes/password.png", 240, 266);
-    drawText(514, 315, "****************", COL_WHITE, 48);
+    drawImage(showpass ? "romfs:/images/boxes/password_hide.png" : "romfs:/images/boxes/password.png", 240, 266);
+    drawText(514, 315, showpass ? "im_eating_salmon" : "****************", COL_WHITE, 48);
     drawImage("romfs:/images/buttons/login.png", 524, 420);
     drawImage("romfs:/images/buttons/createacc.png", 506, 516);
 }
