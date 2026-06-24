@@ -408,7 +408,7 @@ void drawRules(u64 kDown) {
             screen = 1;
         }
         Mix_PlayMusic(audio, -1);
-        screen = 3; // TODO: make the actual screen twin
+        screen = 3;
         return;
     }
     if (hidGetTouchScreenStates(&touchState, 1) > 0 && touchState.count > 0) {
@@ -454,7 +454,7 @@ bool showpass = false;
 void drawLogin(u64 kDown) {
     HidTouchScreenState touchState;
     AppletOperationMode mode = appletGetOperationMode();
-    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show password", COL_WHITE, 24);
+    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show/hide password\nA to type the username\nB to type the password\nUP to Log In\nDOWN to Create an Account", COL_WHITE, 24);
     if (kDown & HidNpadButton_Y) {
         showpass = !showpass;
     }
