@@ -353,8 +353,8 @@ void playSFX(Mix_Chunk* sfx, int fade_ms) {
 }
 
 int screen = 0; // 0 = main menu, 1 = error screen, 2 = rules screen, 3 = login screen
-const char* username = "";
-const char* password = "";
+char username[19];
+char password[16];
 char token[512];
 int sock;
 struct sockaddr_in server;
@@ -451,12 +451,94 @@ void drawRules(u64 kDown) {
 }
 
 bool showpass = false;
+int loginselection = 1;
+bool loginAttempted = false;
+char* roomresult = NULL;
+char** rooms = NULL;
+int roomcount = 0;
+
+void login() {
+    if (strlen(username) == 0 || strlen(password) == 0) {
+        errmsg = "Invalid username or password";
+        errcode = "INV_AUTH";
+        screen = 1;
+        return;
+    }
+
+    if (loginAttempted) return;
+    loginAttempted = true;
+    char sender[512];
+    snprintf(sender, sizeof(sender), "%s|%s|", username, password);
+    char* loginreqresult = NULL;
+    for (int attempt = 0; attempt < 3 && loginreqresult == NULL; attempt++) {
+        network_request("http://104.236.25.60:6767/api/login", &loginreqresult, "POST", sender, "text/plain", NULL);
+    }
+    if (loginreqresult == NULL) {
+        errmsg = "The server never responded.";
+        errcode = "SRV_UNREACH";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+
+    if (strstr(loginreqresult, "ERR_WRONG_PASS") != NULL) {
+        errmsg = "You entered the wrong password. Try again.";
+        errcode = "WRONG_PASS";
+        free(loginreqresult);
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+
+    char loginbuf[1024];
+    strncpy(loginbuf, loginreqresult, sizeof(loginbuf) - 1);
+    loginbuf[sizeof(loginbuf) - 1] = '\0';
+    free(loginreqresult);
+
+    char* parsed_token = strtok(loginbuf, "|");
+    if (parsed_token == NULL) {
+        errmsg = "Invalid response from server.";
+        errcode = "BAD_TOKEN";
+        loginAttempted = false;
+        screen = 1;
+        return;
+    }
+    strncpy(token, parsed_token, sizeof(token) - 1);
+    token[sizeof(token) - 1] = '\0';
+
+    // Fetch rooms
+    char* roomreqresult = NULL;
+    network_request("http://104.236.25.60:6767/api/rooms", &roomreqresult, "POST", NULL, NULL, NULL);
+    roomresult = roomreqresult;
+
+    // Play SFX
+    Mix_Chunk* signedup_sfx = loadSFX("romfs:/sfx/signedup.mp3");
+    playSFX(signedup_sfx, 150);
+
+    screen = 4;
+}
 void drawLogin(u64 kDown) {
     HidTouchScreenState touchState;
     AppletOperationMode mode = appletGetOperationMode();
     if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show/hide password\nA to type the username\nB to type the password\nUP to Log In\nDOWN to Create an Account", COL_WHITE, 24);
     if (kDown & HidNpadButton_Y) {
         showpass = !showpass;
+    } else if (kDown & HidNpadButton_A) {
+        char* result = openKeyboard(19, "Enter your username");
+        if (result) {
+            strncpy(username, result, sizeof(username) - 1);
+            username[sizeof(username) - 1] = '\0';
+            free(result);
+        }
+    } else if (kDown & HidNpadButton_B) {
+        char* result = openKeyboard(19, "Enter your password");
+        if (result) {
+            strncpy(password, result, sizeof(password) - 1);
+            password[sizeof(password) - 1] = '\0';
+            free(result);
+        }
+    } else if (kDown & HidNpadButton_Up) {
+        login();
     }
     static bool showTouchWasDown = false;
     bool showTouchDown = false;
@@ -465,24 +547,40 @@ void drawLogin(u64 kDown) {
         u32 ty = touchState.touches[0].y;
         if (isPointInRect(tx, ty, 956, 266, 84, 73)) {
             showTouchDown = true;
+        } else if (isPointInRect(tx, ty, 240, 162, 800, 73)) {
+            char* result = openKeyboard(19, "Enter your username");
+            if (result) {
+                strncpy(username, result, sizeof(username) - 1);
+                username[sizeof(username) - 1] = '\0';
+                free(result);
+            }
+        } else if (isPointInRect(tx, ty, 240, 266, 800, 73)) {
+            char* result = openKeyboard(19, "Enter your password");
+            if (result) {
+                strncpy(password, result, sizeof(password) - 1);
+                password[sizeof(password) - 1] = '\0';
+                free(result);
+            }
+        } else if (isPointInRect(tx, ty, 524, 420, 232, 73)) {
+            login();
         }
     }
     if (showTouchDown && !showTouchWasDown) showpass = !showpass;
     showTouchWasDown = showTouchDown;
     drawImage("romfs:/images/boxes/username.png", 240, 162);
-    drawText(514, 211, "thisuserisverycool0", COL_WHITE, 48);
+    drawText(514, 211, username, COL_WHITE, 48);
     drawImage(showpass ? "romfs:/images/boxes/password_hide.png" : "romfs:/images/boxes/password.png", 240, 266);
-    drawText(514, 315, showpass ? "im_eating_salmon" : "****************", COL_WHITE, 48);
+    drawText(514, 315, showpass ? password : "****************", COL_WHITE, 48);
     drawImage("romfs:/images/buttons/login.png", 524, 420);
     drawImage("romfs:/images/buttons/createacc.png", 506, 516);
 }
 
-int loginselection = 1;
-bool loginAttempted = false;
-char* roomresult = NULL;
+int _loginselection = 1;
+bool _loginAttempted = false;
+char* _roomresult = NULL;
 int roomselection = 1;
-char** rooms = NULL;
-int roomcount = 0;
+char** _rooms = NULL;
+int _roomcount = 0;
 char* selectedRoom = "";
 void oldDrawLogIn(u64 kDown) {
     if (kDown & HidNpadButton_Down) {
@@ -494,14 +592,18 @@ void oldDrawLogIn(u64 kDown) {
     if (kDown & HidNpadButton_A) {
         if (loginselection == 1) {
             char* result = openKeyboard(255, "Enter your username");
-            if (result) {
-                username = result;
-            }
+                if (result) {
+                    strncpy(username, result, sizeof(username) - 1);
+                    username[sizeof(username) - 1] = '\0';
+                    free(result);
+                }
         } else if (loginselection == 2) {
             char* result = openKeyboard(255, "Enter your password");
-            if (result) {
-                password = result;
-            }
+                if (result) {
+                    strncpy(password, result, sizeof(password) - 1);
+                    password[sizeof(password) - 1] = '\0';
+                    free(result);
+                }
         } else if (loginselection == 3) {
             if (strlen(username) == 0 || strlen(password) == 0) {
                 errmsg = "Invalid username or password";
@@ -595,14 +697,18 @@ void drawCreateAccount(u64 kDown) { // create account is just login but with sig
     if (kDown & HidNpadButton_A) {
         if (loginselection == 1) {
             char* result = openKeyboard(255, "Enter your username");
-            if (result) {
-                username = result;
-            }
+                if (result) {
+                    strncpy(username, result, sizeof(username) - 1);
+                    username[sizeof(username) - 1] = '\0';
+                    free(result);
+                }
         } else if (loginselection == 2) {
             char* result = openKeyboard(255, "Enter your password");
-            if (result) {
-                password = result;
-            }
+                if (result) {
+                    strncpy(password, result, sizeof(password) - 1);
+                    password[sizeof(password) - 1] = '\0';
+                    free(result);
+                }
         } else if (loginselection == 3) {
             if (strlen(username) == 0 || strlen(password) == 0) {
                 errmsg = "Invalid username or password";
