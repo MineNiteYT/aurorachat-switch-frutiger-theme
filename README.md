@@ -67,6 +67,6 @@ There are three possibilities on why you may get an error:
 ## Current development status
 - [x] Main menu
 - [x] Rules screen
-- [] Login/Create Account screen
+- [x] Login/Create Account screen
 - [] Room selection screen
 - [] Chat screen
