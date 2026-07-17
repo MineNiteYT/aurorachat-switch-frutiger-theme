@@ -10,15 +10,22 @@
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <png.h>
 #include <setjmp.h>
+#include <math.h>
 #include FT_FREETYPE_H
 
 #define RGBA(r,g,b,a) (((a) << 24) | ((b) << 16) | ((g) << 8) | (r))
-#define COL_BG      RGBA(0xA2, 0x46, 0xF3, 0xFF)
-#define COL_PANEL   RGBA(0x16, 0x21, 0x3E, 0xFF)
-#define COL_HOVER   RGBA(0x2A, 0x3A, 0x5E, 0xFF)
-#define COL_HEADER  RGBA(0x0F, 0x34, 0x60, 0xFF)
+/* Frutiger Aero / Vista-Glass palette */
+#define COL_BG_TOP    RGBA(0x9F, 0xE0, 0xFF, 0xFF)  /* bright sky cyan */
+#define COL_BG_BOTTOM RGBA(0x14, 0x5A, 0xB0, 0xFF)  /* deep aero blue */
+#define COL_BG      COL_BG_TOP /* kept for any leftover references */
+#define COL_PANEL   RGBA(0x1E, 0x6F, 0xCE, 0xE6)
+#define COL_HOVER   RGBA(0x8E, 0xD6, 0xFF, 0xE6)
+#define COL_HEADER  RGBA(0x0D, 0x47, 0x8F, 0xFF)
+#define COL_GLOSS   RGBA(0xFF, 0xFF, 0xFF, 0x8C)
+#define COL_SHADOW  RGBA(0x0A, 0x1C, 0x33, 0xFF)
 #define COL_WHITE   RGBA(0xFF, 0xFF, 0xFF, 0xFF)
 #define COL_RED     RGBA(0xFF, 0x00, 0x00, 0xFF)
 #define COL_BLACK   RGBA(0x00, 0x00, 0x00, 0xFF)
@@ -50,6 +57,110 @@ void clearScreen(u32 color) {
         for (int x = 0; x < 1280; x++)
             framebuf[y * framebuf_width + x] = color;
 }
+
+/* Vertical two-tone gradient fill, used for the Aero glass backdrop */
+void drawGradientV(int x, int y, int w, int h, u32 colorTop, u32 colorBottom) {
+    u8 tr = (colorTop >> 0) & 0xFF, tg = (colorTop >> 8) & 0xFF, tb = (colorTop >> 16) & 0xFF;
+    u8 br = (colorBottom >> 0) & 0xFF, bg = (colorBottom >> 8) & 0xFF, bb = (colorBottom >> 16) & 0xFF;
+    for (int row = 0; row < h; row++) {
+        int py = y + row;
+        if (py < 0 || py >= 720) continue;
+        float t = (float)row / (float)(h > 1 ? h - 1 : 1);
+        u8 r = (u8)(tr + (br - tr) * t);
+        u8 g = (u8)(tg + (bg - tg) * t);
+        u8 b = (u8)(tb + (bb - tb) * t);
+        u32 rowColor = RGBA(r, g, b, 0xFF);
+        for (int col = 0; col < w; col++) {
+            int px = x + col;
+            if (px < 0 || px >= 1280) continue;
+            framebuf[py * framebuf_width + px] = rowColor;
+        }
+    }
+}
+
+/* Rounded-corner translucent glass panel with a soft gloss band on top.
+   radius = 0 gives a plain edge-to-edge bar (used for full-width headers). */
+void drawGlassPanel(int x, int y, int w, int h, int radius, u32 color, u8 alpha) {
+    u8 cr = (color >> 0) & 0xFF;
+    u8 cg = (color >> 8) & 0xFF;
+    u8 cb = (color >> 16) & 0xFF;
+    for (int row = 0; row < h; row++) {
+        int py = y + row;
+        if (py < 0 || py >= 720) continue;
+        for (int col = 0; col < w; col++) {
+            int px = x + col;
+            if (px < 0 || px >= 1280) continue;
+
+            if (radius > 0) {
+                int dx = 0, dy = 0, inCorner = 0;
+                if (col < radius && row < radius) { dx = radius - col; dy = radius - row; inCorner = 1; }
+                else if (col >= w - radius && row < radius) { dx = col - (w - radius - 1); dy = radius - row; inCorner = 1; }
+                else if (col < radius && row >= h - radius) { dx = radius - col; dy = row - (h - radius - 1); inCorner = 1; }
+                else if (col >= w - radius && row >= h - radius) { dx = col - (w - radius - 1); dy = row - (h - radius - 1); inCorner = 1; }
+                if (inCorner && (dx * dx + dy * dy) > radius * radius) continue;
+            }
+
+            u32 existing = framebuf[py * framebuf_width + px];
+            u8 er = (existing >> 0) & 0xFF;
+            u8 eg = (existing >> 8) & 0xFF;
+            u8 eb = (existing >> 16) & 0xFF;
+
+            float t = (float)row / (float)(h > 1 ? h - 1 : 1);
+            float glossBoost = (t < 0.4f) ? (0.4f - t) * 0.6f : 0.0f;
+
+            u8 dr = (u8)((cr * alpha + er * (255 - alpha)) / 255);
+            u8 dg = (u8)((cg * alpha + eg * (255 - alpha)) / 255);
+            u8 db = (u8)((cb * alpha + eb * (255 - alpha)) / 255);
+
+            dr = (u8)fminf(255.0f, dr + (255 - dr) * glossBoost);
+            dg = (u8)fminf(255.0f, dg + (255 - dg) * glossBoost);
+            db = (u8)fminf(255.0f, db + (255 - db) * glossBoost);
+
+            framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
+        }
+    }
+}
+
+/* Decorative floating bubbles - the classic Frutiger Aero accent.
+   'tick' is a free-running frame counter used to gently bob them. */
+void drawBubbles(int tick) {
+    typedef struct { int x, baseY, r; float speed, phase; u8 alpha; } Bubble;
+    static const Bubble bubbles[] = {
+        {80,   620, 26, 0.02f, 0.0f, 35},
+        {180,  660, 14, 0.03f, 1.4f, 28},
+        {1150, 600, 34, 0.015f,2.1f, 30},
+        {1220, 680, 16, 0.025f,0.7f, 25},
+        {60,   120, 18, 0.018f,3.0f, 22},
+        {1200, 90,  22, 0.022f,4.2f, 26},
+    };
+    for (size_t i = 0; i < sizeof(bubbles) / sizeof(bubbles[0]); i++) {
+        const Bubble* b = &bubbles[i];
+        int cx = b->x + (int)(sinf(tick * b->speed + b->phase) * 10.0f);
+        int cy = b->baseY;
+        int r = b->r;
+        for (int dy = -r; dy <= r; dy++) {
+            int py = cy + dy;
+            if (py < 0 || py >= 720) continue;
+            int span = (int)sqrtf((float)(r * r - dy * dy));
+            for (int dx = -span; dx <= span; dx++) {
+                int px = cx + dx;
+                if (px < 0 || px >= 1280) continue;
+                u32 existing = framebuf[py * framebuf_width + px];
+                u8 er = (existing >> 0) & 0xFF;
+                u8 eg = (existing >> 8) & 0xFF;
+                u8 eb = (existing >> 16) & 0xFF;
+                u8 a = b->alpha;
+                u8 dr = (255 * a + er * (255 - a)) / 255;
+                u8 dg = (255 * a + eg * (255 - a)) / 255;
+                u8 db = (255 * a + eb * (255 - a)) / 255;
+                framebuf[py * framebuf_width + px] = RGBA(dr, dg, db, 0xFF);
+            }
+        }
+    }
+}
+
+/* Draws text with a soft dark drop-shadow so it stays legible directly on the gradient */
+void drawTextShadow(int x, int y, const char* text, u32 color, int size);
 
 void drawGlyph(int x, int y, FT_Bitmap* bmp, u32 color) {
     u8 cr = (color >>  0) & 0xFF;
@@ -176,6 +287,11 @@ void drawText(int x, int y, const char* text, u32 color, int size) {
     }
 }
 
+void drawTextShadow(int x, int y, const char* text, u32 color, int size) {
+    drawText(x + 2, y + 2, text, COL_SHADOW, size);
+    drawText(x, y, text, color, size);
+}
+
 char* openKeyboard(int maxlen, const char* guideText) {
     Result rc = 0;
     SwkbdConfig kbd;
@@ -205,9 +321,10 @@ const char* errmsg = "";
 const char* errcode = "";
 
 void drawError(const char* message, const char* error_code) {
-    drawText(10, 48, "oops, something went wrong :/", COL_RED, 50);
-    drawText(10, 114, message, COL_WHITE, 35);
-    drawText(10, 710, error_code, COL_WHITE, 22);
+    drawGlassPanel(0, 0, 1280, 720, 0, COL_HEADER, 90);
+    drawTextShadow(10, 48, "oops, something went wrong :/", COL_RED, 50);
+    drawTextShadow(10, 114, message, COL_WHITE, 35);
+    drawTextShadow(10, 710, error_code, COL_WHITE, 22);
 }
 
 static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
@@ -375,10 +492,10 @@ void drawMainMenu(u64 kDown) {
         return;
     }
 
-    if (mode == AppletOperationMode_Console) drawText(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
-    drawText(1180, 715, "v26.7.14", COL_WHITE, 24);
-    drawImage("romfs:/images/aurorachat.png", 383, 190);
-    drawImage("romfs:/images/buttons/enter.png", 470, 447);
+    if (mode == AppletOperationMode_Console) drawTextShadow(0, 24, "AuroraChat works better in handheld mode!", COL_WHITE, 24);
+    drawTextShadow(1180, 715, "v26.7.14", COL_WHITE, 24);
+    drawImage("romfs:/images/aurorachat.png", 512, 190);
+    drawImage("romfs:/images/buttons/enter.png", 525, 452);
 }
 
 int ruleslinescroll = 0;
@@ -408,8 +525,8 @@ void drawRules(u64 kDown) {
             return;
         }
     }
-    drawText(0, 24, "Use the D-Pad to scroll\nA to agree with the Code of Conduct", COL_WHITE, 24);
-    drawText(375, 100, "Code of Conduct:", COL_WHITE, 64);
+    drawTextShadow(0, 24, "Use the D-Pad to scroll\nA to agree with the Code of Conduct", COL_WHITE, 24);
+    drawTextShadow(375, 100, "Code of Conduct:", COL_WHITE, 64);
     drawImage("romfs:/images/boxes/rules.png", 439, 203);
 
     char *copy = strdup(rules);
@@ -431,6 +548,48 @@ void drawRules(u64 kDown) {
 bool showpass = false;
 int loginselection = 1;
 bool loginAttempted = false;
+
+/* Local credential persistence, so the user doesn't have to log in on every launch.
+   NOTE: this is plaintext on the SD card - acceptable here only because the
+   AuroraChat server itself already accepts plaintext credentials over unencrypted
+   HTTP, so this doesn't weaken anything that wasn't already weak. Don't reuse
+   this pattern for anything that talks to a real/sensitive account. */
+#define CONFIG_DIR  "sdmc:/switch/aurorachat"
+#define CONFIG_PATH "sdmc:/switch/aurorachat/login.cfg"
+
+void ensureConfigDir(void) {
+    mkdir("sdmc:/switch", 0777);
+    mkdir(CONFIG_DIR, 0777);
+}
+
+void saveCredentials(const char* user, const char* pass) {
+    ensureConfigDir();
+    FILE* f = fopen(CONFIG_PATH, "wb");
+    if (!f) return;
+    fprintf(f, "%s\n%s\n", user, pass);
+    fclose(f);
+}
+
+bool loadSavedCredentials(char* userOut, size_t userSize, char* passOut, size_t passSize) {
+    FILE* f = fopen(CONFIG_PATH, "rb");
+    if (!f) return false;
+    char line1[64] = {0}, line2[64] = {0};
+    bool ok = fgets(line1, sizeof(line1), f) != NULL && fgets(line2, sizeof(line2), f) != NULL;
+    fclose(f);
+    if (!ok) return false;
+    line1[strcspn(line1, "\r\n")] = 0;
+    line2[strcspn(line2, "\r\n")] = 0;
+    if (strlen(line1) == 0 || strlen(line2) == 0) return false;
+    strncpy(userOut, line1, userSize - 1);
+    userOut[userSize - 1] = '\0';
+    strncpy(passOut, line2, passSize - 1);
+    passOut[passSize - 1] = '\0';
+    return true;
+}
+
+void clearSavedCredentials(void) {
+    remove(CONFIG_PATH);
+}
 char* roomresult = NULL;
 char** rooms = NULL;
 int roomcount = 0;
@@ -483,6 +642,7 @@ void login() {
     }
     strncpy(token, parsed_token, sizeof(token) - 1);
     token[sizeof(token) - 1] = '\0';
+    saveCredentials(username, password);
 
     // Fetch rooms
     char* roomreqresult = NULL;
@@ -557,6 +717,7 @@ void createAccount() {
     }
     strncpy(token, parsed_token, sizeof(token) - 1);
     token[sizeof(token) - 1] = '\0';
+    saveCredentials(username, password);
 
     // Fetch rooms
     char* roomreqresult = NULL;
@@ -586,7 +747,7 @@ void createAccount() {
 void drawLogin(u64 kDown) {
     HidTouchScreenState touchState;
     AppletOperationMode mode = appletGetOperationMode();
-    if (mode == AppletOperationMode_Console) drawText(0, 24, "Y to show/hide password\nA to type the username\nB to type the password\nUP to Log In\nDOWN to Create an Account", COL_WHITE, 24);
+    if (mode == AppletOperationMode_Console) drawTextShadow(0, 24, "Y to show/hide password\nA to type the username\nB to type the password\nUP to Log In\nDOWN to Create an Account", COL_WHITE, 24);
     if (kDown & HidNpadButton_Y) {
         showpass = !showpass;
     } else if (kDown & HidNpadButton_A) {
@@ -642,7 +803,7 @@ void drawLogin(u64 kDown) {
     drawImage(showpass ? "romfs:/images/boxes/password_hide.png" : "romfs:/images/boxes/password.png", 240, 266);
     drawText(514, 315, showpass ? password : "****************", COL_WHITE, 48);
     drawImage("romfs:/images/buttons/login.png", 524, 420);
-    drawImage("romfs:/images/buttons/createacc.png", 506, 516);
+    drawImage("romfs:/images/buttons/createacc.png", 524, 505);
 }
 
 void parseRooms(const char* roomdata) {
@@ -703,7 +864,7 @@ void drawRoomSelection(u64 kDown) {
             }
         }
     }
-    if (mode == AppletOperationMode_Console) drawText(0, 24, "D-Pad to Select a Room\nA to Enter the Selected Room", COL_WHITE, 24);
+    if (mode == AppletOperationMode_Console) drawTextShadow(0, 24, "D-Pad to Select a Room\nA to Enter the Selected Room", COL_WHITE, 24);
     if (kDown & HidNpadButton_Down) {
         roomselection++;
         if (roomselection > roomcount) roomselection = 1;
@@ -714,13 +875,14 @@ void drawRoomSelection(u64 kDown) {
         selectedRoom = rooms[roomselection-1];
         screen = 5;
     }
-    drawText(463, 48, "Room Selection", COL_WHITE, 48);
+    drawGlassPanel(380, 12, 520, 62, 18, COL_PANEL, 140);
+    drawTextShadow(463, 48, "Room Selection", COL_WHITE, 48);
 
     if (rooms && roomcount > 0) {
         for (int i = 0; i < roomcount; i++) {
             int y_pos = 77 + (i * 85);
             drawImage((i + 1 == roomselection) ? "romfs:/images/boxes/room_hover.png" : "romfs:/images/boxes/room.png", 17, y_pos);
-            drawText(35, y_pos+55, rooms[i], COL_WHITE, 48);
+            drawTextShadow(35, y_pos+55, rooms[i], COL_WHITE, 48);
         }
     } else {
         drawError("Failed to load rooms", "ROOM_FETCH_FAIL");
@@ -766,10 +928,12 @@ void drawChatScreen(u64 kDown) {
     }
     char title[128];
     snprintf(title, sizeof(title), "Chat Screen - %s", selectedRoom);
-    drawText(0, 48, title, COL_WHITE, 48);
-    drawText(1043, 24, "Y to send a message\nB to go back", COL_WHITE, 24);
+    drawGlassPanel(0, 0, 1280, 70, 0, COL_PANEL, 130);
+    drawTextShadow(0, 48, title, COL_WHITE, 48);
+    drawTextShadow(1043, 24, "Y to send a message\nB to go back", COL_WHITE, 24);
+    drawGlassPanel(0, 74, 1280, 566, 0, COL_HEADER, 65);
     for (int i = 0; i < messageCount; i++) {
-        drawText(10, 82 + (i * 24), messages[i], COL_WHITE, 24);
+        drawTextShadow(10, 82 + (i * 24), messages[i], COL_WHITE, 24);
     }
     drawImage("romfs:/images/boxes/sendmessage.png", 0, 647);
 }
@@ -790,7 +954,7 @@ int main(int argc, char* argv[]) {
     romfsInit();
 
     FT_Init_FreeType(&ft);
-    FT_New_Face(ft, "romfs:/fonts/OpenSans-Regular.ttf", 0, &face);
+    FT_New_Face(ft, "romfs:/fonts/Frutiger_bold.ttf", 0, &face);
 
     NWindow* win = nwindowGetDefault();
     Framebuffer fb;
@@ -826,7 +990,11 @@ int main(int argc, char* argv[]) {
         screen = 1;
     }
     Mix_PlayMusic(audio, -1);
-    
+
+    if (loadSavedCredentials(username, sizeof(username), password, sizeof(password))) {
+        login();
+    }
+
     while (appletMainLoop()) {
         padUpdate(&pad);
         u64 kDown = padGetButtonsDown(&pad);
@@ -836,7 +1004,7 @@ int main(int argc, char* argv[]) {
         u32 stride;
         framebuf = (u32*)framebufferBegin(&fb, &stride);
         framebuf_width = stride / sizeof(u32);
-        clearScreen(COL_BG);
+        drawImage("romfs:/images/background.png", 0, 0);
 
         char buffer[1024] = {0};
         ssize_t len = recv(sock, buffer, sizeof(buffer) - 1, 0);
