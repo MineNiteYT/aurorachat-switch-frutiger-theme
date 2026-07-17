@@ -70,3 +70,4 @@ There are three possibilities on why you may get an error:
 - [x] Login/Create Account screen
 - [x] Room selection screen
 - [x] Chat screen
+- [x]  🫧🐬Ｆｒｕｔｉｇｅｒ Ａｅｒｏ🐬🫧
